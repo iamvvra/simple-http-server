@@ -1,2 +1,2 @@
 # simple-http-server
-A simple multi-threaded http server written in Rust
+A simple multi-threaded http server written in Rust to learn networking, IO & threading concepts. The http-server starts & listens in `8080` port, serves any resources available in the current directory.
