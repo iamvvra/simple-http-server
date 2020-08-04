@@ -1,6 +1,5 @@
-use std::io::{self, BufRead, BufReader};
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
 use std::thread;
 use threadpool::ThreadPool;
 
@@ -11,28 +10,44 @@ fn main() -> std::io::Result<()> {
     println!("server started");
     for client in listener.incoming() {
         match client {
-            Ok(mut stream) => pool.execute(move || {
+            Ok(stream) => pool.execute(|| {
                 println!("handling the req in, {:?}", thread::current().id());
-                handle_client(&stream);
+                match handle_client(stream) {
+                    Err(e) => println!("error handling client, {:?}", e),
+                    Ok(_) => {}
+                }
             }),
             Err(e) => println!("err, {:?}", e),
         }
     }
-
     Ok(())
 }
 
-fn handle_client(stream: &TcpStream) {
-    match read_request(stream) {
-        Err(e) => println!("{:?}", e),
+fn handle_client(stream: TcpStream) -> io::Result<()> {
+    let root_dir = std::env::current_dir().expect("Error getting the current dir");
+    match read_request(&stream) {
+        Err(_) => println!("error handling"),
         Ok(data) => {
             let lines: Vec<&str> = data.split("\r\n").collect();
             // ignore other lines as of now
+            let mut res = root_dir.to_str().unwrap().to_owned();
             let resource = find_request_uri(lines[0]);
-            // respond(stream, resource);
-            println!("req: {:?}", resource);
+            res.push_str(resource);
+            println!("req, {:?} -> is served with {:?}", resource, res);
+            handle_write(stream, res)?;
         }
     }
+    Ok(())
+}
+
+fn handle_write(mut stream: TcpStream, res: String) -> io::Result<()> {
+    let content = std::fs::read_to_string(res)?;
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n{}\r\n",
+        content
+    );
+    stream.write(response.as_bytes())?;
+    Ok(())
 }
 
 fn find_request_uri(uri: &str) -> &str {
@@ -47,14 +62,12 @@ fn read_request(mut stream: &TcpStream) -> io::Result<String> {
 
     reader.consume(received.len());
 
-    String::from_utf8(received)
-        // .map(|msg| println!("{}", msg))
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Couldn't parse received string as utf8",
-            )
-        })
+    String::from_utf8(received).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Couldn't parse received string as utf8",
+        )
+    })
 }
 
 #[allow(dead_code)]
